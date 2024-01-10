@@ -11,6 +11,7 @@
 
 #ifdef _WIN32
     #include <Windows.h>
+    #include <conio.h>
 #else
     #include <termios.h>
     #include <unistd.h>
@@ -19,7 +20,7 @@
 #define WIDTH 100
 #define HEIGHT 25
 
-#define DELAY 100
+#define DELAY 75
 #define TIMEOUT 1000
 
 #define START_X 50
@@ -37,6 +38,10 @@ int generateRandomNumber(int min, int max) {
     std::uniform_int_distribution<int> dis(min, max);
 
     return dis(gen);
+}
+
+void resetTextFormat() {
+    std::cout << "\033[0m";
 }
 
 struct TSnake {
@@ -67,15 +72,36 @@ struct TSnake {
             tmp = prevPos[0];
             prevPos.insert(prevPos.begin(), std::make_pair(tmp.first, tmp.second));
         }
+
+        moveCursor(7, HEIGHT + 1);
+        for(int i = 0; i < WIDTH / 2; i++) {
+            std::cout << " ";
+        } 
+        moveCursor(8, HEIGHT + 1);
+        std::cout << m_length;
     }
 
     void print() {
+        // Set Color to green
+        std::cout << "\033[0;32m";
+
         for(const auto &pos : prevPos) {
             moveCursor(pos.first, pos.second);
             std::cout << "@";
         }
         moveCursor(lastPosToClear.first, lastPosToClear.second);
         std::cout << " ";
+
+        resetTextFormat();
+    }
+
+    bool checkTailHit() {
+        if(m_length == 1) return false;
+
+        for(size_t i = 0; i < prevPos.size() - 1; i++) {
+            if(prevPos[i] == std::make_pair(m_x, m_y)) return true;
+        }
+        return false;
     }
 
     bool outOfBounds() {
@@ -116,7 +142,11 @@ struct TFruit {
 
     void print() {
         moveCursor(m_x, m_y);
+
+        std::cout << "\033[0;33m";
         std::cout << "o";
+
+        resetTextFormat();
     }
 
 private:
@@ -133,6 +163,9 @@ void showCursor() {
 }
 
 void printBorders() {
+    // Set color for borders to Dark red
+    std::cout << "\033[0;31m";
+
     for (int i = 0; i < WIDTH; i++) {
         std::cout << "#";
     }
@@ -149,11 +182,21 @@ void printBorders() {
     for (int i = 0; i < WIDTH; i++) {
         std::cout << "#";
     }
+
+    resetTextFormat();
 }
 
 bool isLeftArrowPressed() {
 #ifdef _WIN32
-    return GetAsyncKeyState(VK_LEFT) & 0x8000;
+    SHORT keyState = GetAsyncKeyState(VK_LEFT);
+
+    // Check if the key is currently pressed (high-order bit set)
+    if (keyState & 0x8000) {
+        // Reset the value (clear the high-order bit)
+        keyState &= 0x7FFF;
+        return true;
+    }
+    return false;
 #else
     struct termios oldt, newt;
     int ch;
@@ -164,6 +207,8 @@ bool isLeftArrowPressed() {
 
     newt.c_lflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    setbuf(stdin, NULL);  // Disable input buffering
 
     ch = getchar();
     if (ch == 27) {
@@ -181,7 +226,16 @@ bool isLeftArrowPressed() {
 
 bool isRightArrowPressed() {
 #ifdef _WIN32
-    return GetAsyncKeyState(VK_RIGHT) & 0x8000;
+    // Get the state of the right arrow key
+    SHORT keyStateRight = GetAsyncKeyState(VK_RIGHT);
+
+    // Check if the key is currently pressed (high-order bit set)
+    if (keyStateRight & 0x8000) {
+        // Reset the value (clear the high-order bit)
+        keyStateRight &= 0x7FFF;
+        return true;
+    }
+    return false;
 #else
     struct termios oldt, newt;
     int ch;
@@ -192,6 +246,8 @@ bool isRightArrowPressed() {
 
     newt.c_lflag &= ~(ICANON | ECHO);
     tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    setbuf(stdin, NULL);  // Disable input buffering
 
     ch = getchar();
     if (ch == 27) {
@@ -242,8 +298,8 @@ void rotate(std::pair<int, int> &move, int rotation) {
 }
 
 int main(void) {
-    std::system(CLEAR_SCREEN);
     hideCursor();
+    std::system(CLEAR_SCREEN);
 
     printBorders();
 
@@ -260,11 +316,14 @@ int main(void) {
 
     fruit.print();
 
+    moveCursor(0, HEIGHT + 1);
+    std::cout << "Score: " << 1;
+
     // Game cycle
     while(true) {
         snake.move(move);
 
-        if(snake.outOfBounds()) {
+        if(snake.outOfBounds() || (snake.checkTailHit() && snake.getPos() != fruit.getPos())) {
             std::system(CLEAR_SCREEN);
             std::cout << "You died!!" << std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT));
