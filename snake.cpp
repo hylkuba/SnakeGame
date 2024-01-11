@@ -5,14 +5,12 @@
 
 #ifdef _WIN32
     #define CLEAR_SCREEN "cls"
-#else
-    #define CLEAR_SCREEN "clear"
-#endif
 
-#ifdef _WIN32
     #include <Windows.h>
     #include <conio.h>
 #else
+    #define CLEAR_SCREEN "clear"
+
     #include <termios.h>
     #include <unistd.h>
 #endif
@@ -27,9 +25,17 @@
 #define START_Y 12
 #define INIT_LENGTH 1
 
-// Moves cursor to specific location
+
 void moveCursor(int x, int y) {
     std::cout << "\033[" << y << ";" << x << "H";
+}
+
+void hideCursor() {
+    std::cout << "\033[?25l";
+}
+
+void showCursor() {
+    std::cout << "\033[?25h";
 }
 
 int generateRandomNumber(int min, int max) {
@@ -45,6 +51,7 @@ void resetTextFormat() {
 }
 
 struct TSnake {
+    // Set initial position and initial length and store all positions to prevPos 
     TSnake() : m_x(START_X), m_y(START_Y), m_length(INIT_LENGTH) {
         for (int i = 0; i < m_length; i++) {
             prevPos.push_back(std::make_pair(m_x, m_y));
@@ -65,6 +72,7 @@ struct TSnake {
         }
     }
 
+    // Snake eats fruit, increases its length and score
     void eat() {
         m_length++;
         std::pair<int, int> tmp;
@@ -113,6 +121,7 @@ struct TSnake {
         return std::make_pair(m_x, m_y);
     }
 
+    // Checks if "pos" of fruit is within the body of the snake
     bool inBody(std::pair<int, int> pos) {
         for(const auto &it : prevPos) {
             if(it == pos) return true;
@@ -154,14 +163,10 @@ private:
     int m_y;
 };
 
-void hideCursor() {
-    std::cout << "\033[?25l";
-}
-
-void showCursor() {
-    std::cout << "\033[?25h";
-}
-
+/**
+ * @brief Prints map borders efficiently using moveCursor()
+ * 
+ */
 void printBorders() {
     // Set color for borders to Dark red
     std::cout << "\033[0;31m";
@@ -186,6 +191,12 @@ void printBorders() {
     resetTextFormat();
 }
 
+/**
+ * @brief Checks whether left arrow key was pressed
+ * 
+ * @return true 
+ * @return false 
+ */
 bool isLeftArrowPressed() {
 #ifdef _WIN32
     SHORT keyState = GetAsyncKeyState(VK_LEFT);
@@ -224,6 +235,12 @@ bool isLeftArrowPressed() {
 #endif
 }
 
+/**
+ * @brief Checks whether right arrow key was pressed
+ * 
+ * @return true 
+ * @return false 
+ */
 bool isRightArrowPressed() {
 #ifdef _WIN32
     // Get the state of the right arrow key
@@ -263,6 +280,12 @@ bool isRightArrowPressed() {
 #endif
 }
 
+/**
+ * @brief Change move based on rotation
+ * 
+ * @param move Pair containing move value
+ * @param rotation -1 if rotation is to the left, 1 otherwise
+ */
 void rotate(std::pair<int, int> &move, int rotation) {
     if(rotation < 0) {
         // LEFT
@@ -297,58 +320,112 @@ void rotate(std::pair<int, int> &move, int rotation) {
     }
 }
 
+/**
+ * @brief Waits for keypress of ENTER or ESC
+ * 
+ * @return true If user pressed ENTER
+ * @return false If user pressed ESC
+ */
+bool continueGame() {
+    std::cout << "Press ENTER to continue or ESC to exit...";
+
+    while (true) {
+        #ifdef _WIN32
+            if (_kbhit()) {
+                char key = _getch();
+                if (key == 13) {  // ASCII code for ENTER
+                    std::cout << std::endl;
+                    return true;  // User pressed ENTER
+                } else if (key == 27) {  // ASCII code for ESC
+                    std::cout << std::endl;
+                    return false;  // User pressed ESC
+                }
+            }
+        #else
+            struct termios oldt, newt;
+            int ch;
+            tcgetattr(STDIN_FILENO, &oldt);
+            newt = oldt;
+            newt.c_lflag &= ~(ICANON | ECHO);
+            tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+            ch = getchar();
+            tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+            if (ch == 10) {  // ASCII code for ENTER
+                std::cout << std::endl;
+                return true;  // User pressed ENTER
+            } else if (ch == 27) {  // ASCII code for ESC
+                std::cout << std::endl;
+                return false;  // User pressed ESC
+            }
+        #endif
+    }
+}
+
 int main(void) {
     hideCursor();
-    std::system(CLEAR_SCREEN);
 
-    printBorders();
+    // Cycle till user decides to close application
+    bool closeApp = false;
+    while(!closeApp) {
+        std::system(CLEAR_SCREEN);
+        printBorders();
 
-    TSnake snake;
+        TSnake* snake = new TSnake;
 
-    // Set initial move to go UP
-    std::pair<int, int> move {0, -1};
+        // Set initial move to go UP
+        std::pair<int, int> move {0, -1};
 
-    TFruit fruit;
+        TFruit fruit;
 
-    do {
-        fruit.generate();
-    } while(snake.inBody(fruit.getPos()));
+        // Generate fruit position that isn't same as snake's starting position
+        do {
+            fruit.generate();
+        } while(snake->inBody(fruit.getPos()));
 
-    fruit.print();
+        fruit.print();
 
-    moveCursor(0, HEIGHT + 1);
-    std::cout << "Score: " << 1;
+        moveCursor(0, HEIGHT + 1);
+        std::cout << "Score: " << 1;
 
-    // Game cycle
-    while(true) {
-        snake.move(move);
+        // Game cycle
+        while(true) {
+            snake->move(move);
 
-        if(snake.outOfBounds() || (snake.checkTailHit() && snake.getPos() != fruit.getPos())) {
-            std::system(CLEAR_SCREEN);
-            std::cout << "You died!!" << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT));
-            break;
+            // Check if snake is in legal space and didn't hit its tail
+            if(snake->outOfBounds() || (snake->checkTailHit() && snake->getPos() != fruit.getPos())) {
+                std::system(CLEAR_SCREEN);
+                std::cout << "You died!!" << std::endl;
+
+                if(!continueGame()) {
+                    closeApp = true;
+                }
+                break;
+            }
+
+            snake->print();
+
+            // Check if snake ate fruit. If he did, generate new fruit
+            if(snake->getPos() == fruit.getPos()) {
+                snake->eat();
+
+                do {
+                    fruit.generate();
+                } while(snake->inBody(fruit.getPos()));
+
+                fruit.print();
+            }
+
+            // Check for keypresses
+            if(isLeftArrowPressed()) {
+                rotate(move, -1);
+            } else if(isRightArrowPressed()) {
+                rotate(move, 1);
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(DELAY));
         }
 
-        snake.print();
-
-        if(snake.getPos() == fruit.getPos()) {
-            snake.eat();
-
-            do {
-                fruit.generate();
-            } while(snake.inBody(fruit.getPos()));
-
-            fruit.print();
-        }
-
-        if(isLeftArrowPressed()) {
-            rotate(move, -1);
-        } else if(isRightArrowPressed()) {
-            rotate(move, 1);
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(DELAY));
+        delete snake;
     }
 
     std::system(CLEAR_SCREEN);
